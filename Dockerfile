@@ -38,4 +38,4 @@ USER user
 EXPOSE 7860
 
 # Launch Uvicorn ASGI server with dynamic port support
-CMD ["sh", "-c", "uvicorn demo.app:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "uvicorn demo.app:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1 --timeout-keep-alive 60"]
