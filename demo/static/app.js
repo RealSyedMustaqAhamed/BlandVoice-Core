@@ -100,6 +100,10 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({ text, emotion, chunk_frames: chunkFrames })
       });
 
+      if (!resp.ok) {
+        throw new Error(`Server returned HTTP ${resp.status}`);
+      }
+
       const data = await resp.json();
       if (data.status === "ok") {
         document.getElementById("stat-ttfa").innerText = `${data.latency_ms.toFixed(1)} ms`;
@@ -124,10 +128,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         statusIndicator.innerText = "Streaming Complete";
         statusIndicator.style.color = "#10b981";
+      } else {
+        throw new Error(data.detail || "Synthesis failed");
       }
     } catch (err) {
       console.error(err);
-      statusIndicator.innerText = "Error";
+      statusIndicator.innerText = "Service Busy (Retry)";
       statusIndicator.style.color = "#ef4444";
     }
   });

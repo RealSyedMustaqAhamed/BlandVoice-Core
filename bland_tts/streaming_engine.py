@@ -120,29 +120,32 @@ class BlandStreamingTTSEngine:
         max_val = np.max(np.abs(speech)) + 1e-7
         return ((speech / max_val) * 0.9).astype(np.float32)
 
+    async def _fetch_edge_tts(self, text: str, voice: str, rate: str, pitch: str) -> Tuple[np.ndarray, int]:
+        import edge_tts
+        communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate, pitch=pitch)
+        buffer = io.BytesIO()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buffer.write(chunk["data"])
+        buffer.seek(0)
+        if buffer.getbuffer().nbytes < 100:
+            raise ValueError("Empty audio buffer from edge-tts")
+        return sf.read(buffer)
+
     async def _synthesize_neural_audio_async(self, text: str, voice: str, rate: str, pitch: str) -> np.ndarray:
         """
         Synthesizes high-fidelity speech waveform via neural voice backbone.
-        Gracefully falls back to local parametric synthesis if offline or edge_tts is unavailable.
+        Guarded by a 4.0-second timeout to prevent cloud proxy 502/504 gateway timeouts.
+        Gracefully falls back to local parametric synthesis if cloud proxy blocks WebSocket.
         """
         try:
-            import edge_tts
             from scipy.signal import resample_poly
 
-            communicate = edge_tts.Communicate(
-                text=text,
-                voice=voice,
-                rate=rate,
-                pitch=pitch
+            # Cap cloud network latency to 4.0s max
+            audio_data, source_sr = await asyncio.wait_for(
+                self._fetch_edge_tts(text, voice, rate, pitch),
+                timeout=4.0
             )
-
-            buffer = io.BytesIO()
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    buffer.write(chunk["data"])
-
-            buffer.seek(0)
-            audio_data, source_sr = sf.read(buffer)
 
             # Resample to target sample rate (16,000 Hz)
             if source_sr != self.sample_rate:
@@ -159,6 +162,7 @@ class BlandStreamingTTSEngine:
 
             return audio_16k.astype(np.float32)
         except Exception:
+            # Immediate local parametric synthesis fallback in ~10ms
             return self._synthesize_local_parametric_fallback(text)
 
     def _run_coroutine_sync(self, coro):
